@@ -8,6 +8,13 @@
       "when": 1795017740229,
       "tag": "0000_youthful_demogoblin",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1795060500615,
+      "tag": "0001_story_photos",
+      "breakpoints": true
     }
   ]
 }

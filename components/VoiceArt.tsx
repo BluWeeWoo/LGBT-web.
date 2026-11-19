@@ -1,6 +1,9 @@
+"use client";
+
 import { MapPin } from "lucide-react";
 import { Bloom } from "./Brand";
-import type { Voice } from "../lib/voices";
+import type { StoryPhoto, Voice } from "../lib/voices";
+import { usePortraitPrint } from "../hooks/use-portrait-print";
 
 const colors = [
   "#d9c8e7",
@@ -10,7 +13,18 @@ const colors = [
   "#c4cfe4",
   "#e6c5cc",
 ];
+function UploadedPortrait({ photo }: { photo: StoryPhoto }) {
+  // Previously published photos have an original but no stored print.
+  const legacy = usePortraitPrint(photo.portraitSrc ? undefined : photo.src);
+  const src = photo.portraitSrc || legacy?.print;
+  if (!src && !legacy?.failed)
+    return <span className="initial-avatar" aria-hidden="true"><Bloom className="anonymous-stamp" /></span>;
+  return <img src={src || photo.src} alt="" draggable={false} />;
+}
+
 export function Face({ voice }: { voice: Voice }) {
+  if (voice.usePhotoAsPortrait && voice.photos?.[0])
+    return <UploadedPortrait photo={voice.photos[0]} />;
   return voice.portrait !== undefined ? (
     <img
       src={`/portraits/voice-${voice.portrait}.jpg`}
@@ -19,12 +33,12 @@ export function Face({ voice }: { voice: Voice }) {
     />
   ) : (
     <span className="initial-avatar" aria-hidden="true">
-      {Array.from(voice.name.trim())[0]?.toLocaleUpperCase() || "✧"}
+      {voice.name === "Anonymous" ? <Bloom className="anonymous-stamp" /> : Array.from(voice.name.trim())[0]?.toLocaleUpperCase() || "✧"}
     </span>
   );
 }
 
-function Postmark() {
+export function Postmark() {
   return (
     <svg
       className="postmark"

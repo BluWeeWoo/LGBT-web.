@@ -1,4 +1,11 @@
-import { sqliteTable, text, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, index, integer } from "drizzle-orm/sqlite-core";
+
+export type StoryMedia = {
+  album: string;
+  descriptions: string[];
+  usePhotoAsPortrait: boolean;
+  hasPortraitPrint?: boolean;
+};
 
 export const stories = sqliteTable(
   "stories",
@@ -12,6 +19,8 @@ export const stories = sqliteTable(
     flag: text("flag").notNull(),
     topic: text("topic").notNull(),
     createdAt: text("created_at").notNull(),
+    media: text("media", { mode: "json" }).$type<StoryMedia>(),
+    removing: integer("removing", { mode: "boolean" }).notNull().default(false),
   },
   (table) => [index("stories_by_date").on(table.createdAt)],
 );

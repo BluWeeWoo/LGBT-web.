@@ -2,6 +2,8 @@ import { and, desc, eq, lt, or } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { stories } from "../../../db/schema";
 import { excerpt, flagThemes, topics } from "../../../lib/voices";
+import { storyAuthor } from "../../../lib/story-access";
+import { decodeStoryPhotos, maxStoryRequestBytes, removeStoryPhotos, storeStoryPhotos } from "../../../lib/story-photo-storage";
 
 export const dynamic = "force-dynamic";
 const uuid =
@@ -24,11 +26,18 @@ function visible(row: typeof stories.$inferSelect, user: string | null) {
     quote: excerpt(row.body),
     sample: false,
     mine: row.author === user,
+    photos: row.media?.descriptions.map((description, index) => ({
+      src: `/api/stories/photo?id=${row.id}&index=${index}`,
+      description,
+      portraitSrc: index === 0 && row.media?.usePhotoAsPortrait && row.media.hasPortraitPrint
+        ? `/api/stories/photo?id=${row.id}&index=portrait` : undefined,
+    })),
+    usePhotoAsPortrait: row.media?.usePhotoAsPortrait ?? false,
   };
 }
 
 export async function GET(request: Request) {
-  const user = request.headers.get("oai-authenticated-user-id");
+  const user = storyAuthor(request.headers);
   const params = new URL(request.url).searchParams;
   try {
     const db = getDb();
@@ -36,7 +45,7 @@ export async function GET(request: Request) {
       const [row] = await db
         .select()
         .from(stories)
-        .where(eq(stories.id, params.get("id")!))
+        .where(and(eq(stories.id, params.get("id")!), eq(stories.removing, false)))
         .limit(1);
       return row
         ? reply({ story: visible(row, user) })
@@ -54,7 +63,7 @@ export async function GET(request: Request) {
     const rows = await db
       .select()
       .from(stories)
-      .where(after)
+      .where(and(eq(stories.removing, false), after))
       .orderBy(desc(stories.createdAt), desc(stories.id))
       .limit(25);
     const page = rows.slice(0, 24);
@@ -79,7 +88,7 @@ function writeAccess(request: Request) {
   const origin = request.headers.get("Origin");
   if (origin && origin !== new URL(request.url).origin)
     return { error: reply({ error: "Please use the form on RYE." }, 403) };
-  const user = request.headers.get("oai-authenticated-user-id");
+  const user = storyAuthor(request.headers);
   if (!user)
     return {
       error: reply(
@@ -106,9 +115,9 @@ export async function POST(request: Request) {
       const chunk = await reader.read();
       if (chunk.done) break;
       total += chunk.value.byteLength;
-      if (total > 36000) {
+      if (total > maxStoryRequestBytes) {
         await reader.cancel();
-        return reply({ error: "Your story is too long." }, 413);
+        return reply({ error: "The story and photos are too large to publish." }, 413);
       }
       raw += decoder.decode(chunk.value, { stream: true });
     }
@@ -137,6 +146,7 @@ export async function POST(request: Request) {
   if (
     !value.title ||
     value.body.length < 20 ||
+    typeof value.flag !== "string" ||
     !Object.hasOwn(flagThemes, value.flag) ||
     !topics.includes(value.topic)
   )
@@ -147,11 +157,24 @@ export async function POST(request: Request) {
       },
       400,
     );
-  const db = getDb();
+  let photos;
   try {
-    await db
-      .insert(stories)
-      .values({
+    photos = decodeStoryPhotos(value.photos, value.usePhotoAsPortrait === true);
+  } catch (error) {
+    return reply({ error: error instanceof Error ? error.message : "Please choose the photos again." }, 400);
+  }
+  try {
+    const db = getDb();
+    const find = async () => (await db.select().from(stories).where(eq(stories.id, value.id)))[0];
+    const existingResponse = (row: typeof stories.$inferSelect | undefined) =>
+      row && row.author === access.user && !row.removing
+        ? reply({ story: visible(row, access.user!) })
+        : reply({ error: "Please reopen the form to publish." }, 409);
+    const existing = await find();
+    if (existing) return existingResponse(existing);
+    const media = await storeStoryPhotos(value.id, photos, value.usePhotoAsPortrait === true);
+    try {
+      const [inserted] = await db.insert(stories).values({
         id: value.id,
         author: access.user!,
         name: value.name || "Anonymous",
@@ -161,15 +184,18 @@ export async function POST(request: Request) {
         flag: value.flag,
         topic: value.topic,
         createdAt: new Date().toISOString(),
-      })
-      .onConflictDoNothing();
-    const [row] = await db
-      .select()
-      .from(stories)
-      .where(eq(stories.id, value.id));
-    if (!row || row.author !== access.user)
-      return reply({ error: "Please reopen the form to publish." }, 409);
-    return reply({ story: visible(row, access.user!) }, 201);
+        media,
+      }).onConflictDoNothing().returning();
+      if (inserted) return reply({ story: visible(inserted, access.user!) }, 201);
+    } catch (error) {
+      // A write can succeed even if its response was lost. Keep the winning album.
+      const saved = await find();
+      if (media && saved?.media?.album !== media.album) await removeStoryPhotos(value.id, media);
+      if (saved) return existingResponse(saved);
+      throw error;
+    }
+    await removeStoryPhotos(value.id, media);
+    return existingResponse(await find());
   } catch {
     return reply(
       {
@@ -188,13 +214,14 @@ export async function DELETE(request: Request) {
   if (!uuid.test(id))
     return reply({ error: "This story could not be found." }, 404);
   try {
-    const removed = await getDb()
-      .delete(stories)
-      .where(and(eq(stories.id, id), eq(stories.author, access.user!)))
-      .returning({ id: stories.id });
-    return removed.length
-      ? reply({ removed: true })
-      : reply({ error: "This story could not be found." }, 404);
+    const db = getDb();
+    const owned = and(eq(stories.id, id), eq(stories.author, access.user!));
+    // Hide the story first and keep its photo keys until file removal succeeds.
+    const [row] = await db.update(stories).set({ removing: true }).where(owned).returning({ media: stories.media });
+    if (!row) return reply({ error: "This story could not be found." }, 404);
+    await removeStoryPhotos(id, row.media);
+    await db.delete(stories).where(owned);
+    return reply({ removed: true });
   } catch {
     return reply({ error: "Removal failed. Please try again." }, 503);
   }

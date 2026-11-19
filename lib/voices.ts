@@ -36,6 +36,18 @@ export type Flag = keyof typeof flagThemes;
 export const topics = ["Belonging", "Identity", "Speaking up", "Joy"] as const;
 export type Topic = (typeof topics)[number];
 
+export type StoryPhoto = {
+  src: string;
+  description: string;
+  portraitSrc?: string;
+};
+
+export const maxStoryPhotos = 3;
+export const maxPhotoBytes = 768 * 1024;
+export const maxPortraitBytes = 256 * 1024;
+export const maxPhotoDescription = 180;
+export const jpegDataPrefix = "data:image/jpeg;base64,";
+
 export type Voice = {
   id: string;
   name: string;
@@ -48,6 +60,8 @@ export type Voice = {
   sample: boolean;
   mine?: boolean;
   portrait?: number;
+  photos?: StoryPhoto[];
+  usePhotoAsPortrait?: boolean;
   center?: [number, number];
 };
 

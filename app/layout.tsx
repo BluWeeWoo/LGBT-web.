@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./atlas.css";
+import "./stories.css";
+import "./auth.css";
 
 export const metadata: Metadata = {
   title: "RYE — Raise Your Equality",

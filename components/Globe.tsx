@@ -1,21 +1,9 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { maskHex } from "../lib/atlas-mask";
-
-const width = 720;
-const height = 360;
-const land = Uint8Array.from(maskHex.match(/../g)!, (pair) =>
-  parseInt(pair, 16),
-);
+import { atlasTilt, isLand, maskWidth as width, maskHeight as height } from "../lib/atlas-land";
 const tau = Math.PI * 2;
 type Draw = (longitude: number) => void;
-
-function isLand(x: number, y: number) {
-  const index =
-    Math.min(height - 1, Math.max(0, y)) * width + ((x + width) % width);
-  return (land[index >> 3] >> (index & 7)) & 1;
-}
 
 // Precompute the projection for a fixed camera tilt. Turning the globe then
 // requires only a longitude offset, so the land and grid stay together.
@@ -40,9 +28,8 @@ function makeProjection(canvas: HTMLCanvasElement): Draw {
   const shade = new Float32Array(count),
     grain = new Float32Array(count);
   const radius = size / 2 - 1.7;
-  const tilt = (22 * Math.PI) / 180;
-  const sinTilt = Math.sin(tilt),
-    cosTilt = Math.cos(tilt);
+  const sinTilt = Math.sin(atlasTilt),
+    cosTilt = Math.cos(atlasTilt);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const i = y * size + x;
