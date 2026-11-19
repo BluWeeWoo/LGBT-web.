@@ -1,6 +1,52 @@
-# vinext-starter
+# RYE · Raise Your Equality
 
-A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
+RYE is a community story atlas. The local MySQL edition uses email/password accounts and a reviewer dashboard. Public visitors can read approved stories. Members can submit stories and photos for review.
+
+## Run with XAMPP and MySQL
+
+From this directory, start MySQL in the XAMPP Control Panel. Start Apache as well if you want to use phpMyAdmin. The app supports MySQL 8 and the MariaDB engine bundled with XAMPP. PHP 8 or later needs PDO MySQL, mbstring and Argon2id support.
+
+For a fresh installation, run these commands in PowerShell. Replace the example address with the reviewer's email.
+
+```powershell
+npm.cmd run db:setup -- reviewer@example.com
+npm.cmd run db:admin
+npm.cmd run dev
+```
+
+Setup creates `rye_atlas`, a database user limited to that schema, and a reserved reviewer account. Use `RYE_MYSQL_SETUP_USER` and `RYE_MYSQL_SETUP_PASSWORD` in the setup process if your XAMPP administrator requires credentials. Rerunning setup preserves accounts, stories and review decisions. For an alternative using phpMyAdmin, run `npm.cmd run db:prepare -- reviewer@example.com`, then import the generated `.env.rye-bootstrap.sql` through the server's **Import** tab. This local file contains a database credential and belongs on your own computer.
+
+`npm.cmd run db:admin` generates a reviewer password and shows it once in your terminal. You can supply your own password through the process environment variable `RYE_ADMIN_PASSWORD`. Running the command again resets the password and signs out existing reviewer sessions. Public registration always creates a member. A reviewer signs in on the same **Log in** page and goes directly to `/admin`.
+
+Open the local address printed by `npm.cmd run dev` (normally `http://localhost:5173`). The local preview starts a PHP service on loopback port 8791. If PHP is installed outside XAMPP and outside your PATH, set `RYE_PHP` to its executable. For a separate built Worker preview, run `npm.cmd run db:serve` and provide the same server bindings to the Worker.
+
+| Table | Contents |
+| --- | --- |
+| `users` | Display names, unique account emails, Argon2id password hashes and roles |
+| `sessions` | Hashed session tokens and their expiration times |
+| `stories` | Author, text, theme, publication status, reviewer and review time |
+| `story_photos` | JPEGs, descriptions and optional filtered profile portraits |
+| `auth_throttles` | Temporary counters for sign-up and login attempts |
+
+The reusable schema is in `db/mysql/schema.sql`. Story text and photos are committed together. Admin approval makes both public, and declining keeps both private. The six sample stories ship with the website.
+
+### Starting a recovered RYE database on Windows
+
+If this checkout has a verified RYE export and its local `.env.mysql-recovery.json`, leave the XAMPP Control Panel modules stopped and run the following command from the site directory.
+
+```powershell
+npm.cmd run dev:recovered
+```
+
+The first run restores the five RYE tables under `%LOCALAPPDATA%\RYE`, checks the reviewer and table access, and keeps a copy of the verified SQL export there. It starts a separate MariaDB instance on `127.0.0.1:3317` and uses the existing website and PHP service. The terminal shows a generated RYE password once if the reviewer still needs one. Open the local website address it prints and use **Log in** with the reserved email.
+
+Keep using `dev:recovered` for this copy. Later launches reuse its data and reviewer password. Press **Ctrl+C** in the preview terminal to stop it. If you lose the reviewer password, start the preview with `npm.cmd run dev:recovered -- --reset-admin` to generate a new one.
+
+### Connecting a hosted database
+
+Serve only `db/mysql/public` as the PHP document root over HTTPS. Keep its parent PHP files one directory above it. Set `RYE_MYSQL_DB_HOST`, `RYE_MYSQL_DB_PORT`, `RYE_MYSQL_DB_NAME`, `RYE_MYSQL_DB_USER`, `RYE_MYSQL_DB_PASSWORD` and a randomly generated `RYE_MYSQL_API_TOKEN` on that service. For a remote database that uses TLS, set `RYE_MYSQL_DB_CA` to the certificate file. Apply the schema and provision the reviewer on that database first.
+
+Set the website's server bindings `RYE_MYSQL_API_URL` to the HTTPS PHP endpoint and `RYE_MYSQL_API_TOKEN` to the matching secret. The browser only calls the website's own API. The local XAMPP address is for development. Deployments without either MySQL binding keep using the earlier D1/R2 demo. Existing D1 stories and R2 photos require a separate migration before pointing a populated deployment at MySQL. Demo logins did not store real passwords, so people create a RYE password on their first database-backed registration.
 
 ## Prerequisites
 
@@ -50,12 +96,20 @@ Local tool usage metrics are disabled by default. Set `WRANGLER_SEND_METRICS=tru
 - the remaining `scripts/` files select execution profiles and run installation, development, and builds; the plugin's helpers orchestrate the Sites lifecycle
 - `dist/` contains generated deployment output; `.vinext/`, `.wrangler/`, and `.sites-runtime/` contain ignored local tool state
 - `db/index.ts` reads the D1 binding from the Cloudflare Worker environment
-- `db/schema.ts` starts intentionally empty
+- `db/schema.ts` defines story storage for the D1-backed edition
 - `@cloudflare/workers-types` provides Worker types; `cloudflare-env.d.ts` declares optional `DB`/`BUCKET` bindings—update these declarations if binding names change
 - `examples/d1/` contains an optional D1 example surface
 - `drizzle.config.ts` supports local migration generation when needed
 
 ## Workspace Auth Headers
+
+### Story moderation in the earlier D1 demo
+
+Use the existing Log in page. In the loopback development preview the reviewer email is `seedy@sites.test` and its local demo password is `AtlasReview!26`. You can also set `RYE_LOCAL_REVIEWER_EMAIL` in the ignored `.dev.vars` file to use your own email with that local password. The development identity provider opens the review desk after a successful login. Other demo logins open the atlas.
+
+On the hosted site, set the server environment variable `RYE_ADMIN_EMAILS` to the comma-separated addresses of the authorized reviewers. Reviewers enter their email and a sample password on the demo form, then verify the matching account through the platform sign-in. Passwords for the hosted identity provider belong only on that provider’s sign-in page. Removing an address revokes its review access on the next request.
+
+Migration `0002_story_review.sql` retains previously published community stories and makes new submissions pending. The public atlas, story links and photo endpoints expose submissions after approval. Reviewers can inspect the full story and photos before choosing a decision.
 
 Signed-in visitors receive both `oai-authenticated-user-id` and `oai-authenticated-user-email`. Private Sites require every visitor to sign in; public Sites may also have anonymous visitors, for whom neither header is present.
 

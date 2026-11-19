@@ -1,10 +1,11 @@
 import vinext from "vinext";
-import { defineConfig } from "vite";
+import { defineConfig, type ViteDevServer } from "vite";
 import hostingConfig from "./.openai/hosting.json";
 import { readExecutionProfile } from "./scripts/execution-profile.mjs";
 import { configureToolEnvironment } from "./scripts/tool-environment.mjs";
 import { sites } from "./scripts/vite/sites-vite-plugin";
 import { connectorPreview } from "./scripts/vite/connector-preview-plugin.mjs";
+import { startLocalDatabaseBridge, usingLocalDatabase } from "./scripts/mysql.mjs";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   "00000000-0000-4000-8000-000000000000";
@@ -45,6 +46,7 @@ export default defineConfig(async ({ command }) => {
 
   return {
     server: {
+      fs: { deny: [".env", ".env.*", "**/.dev.vars*", "*.{crt,pem}", "**/.git/**", "**/.sites-runtime/**"] },
       ...(managedLinux
         ? { host: "0.0.0.0", allowedHosts: ["terminal.local"] }
         : {}),
@@ -56,6 +58,17 @@ export default defineConfig(async ({ command }) => {
       vinext(),
       sites({ mockAuth: !managedLinux }),
       connectorPreview(),
+      {
+        name: "rye-local-mysql",
+        apply: "serve",
+        configureServer(server: ViteDevServer) {
+          if (managedLinux || !usingLocalDatabase()) return;
+          const bridge = startLocalDatabaseBridge();
+          const stop = () => { bridge.kill(); };
+          process.once("exit", stop);
+          server.httpServer?.once("close", () => { process.off("exit", stop); stop(); });
+        },
+      },
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,

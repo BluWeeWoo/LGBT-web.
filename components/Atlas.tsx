@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ArrowDown, ArrowUp, ArrowUpRight, Check, ChevronDown, Feather, SlidersHorizontal, X } from "lucide-react";
 import { samples, topics, type Topic, type Voice } from "../lib/voices";
 import { Brand, Bloom } from "./Brand";
@@ -12,20 +12,44 @@ import { Postcard } from "./VoiceArt";
 import AtlasWelcome, { type IntroPhase } from "./AtlasWelcome";
 import { finishGuide, followSession, leaveDemo, readDemo, startGuide } from "../lib/demo-session";
 import type { StorySession } from "../lib/story-access";
+import type { ReviewStatus } from "../lib/review-types";
 
 type AtlasProps = { initialSession: StorySession; initialWelcome: boolean; publishLogin: string };
 
+function subscribeToHash(change: () => void) {
+  window.addEventListener("hashchange", change);
+  window.addEventListener("popstate", change);
+  return () => {
+    window.removeEventListener("hashchange", change);
+    window.removeEventListener("popstate", change);
+  };
+}
+const browserHash = () => window.location.hash;
+const serverHash = () => "";
+
+function writeHash(url: string, replace: boolean) {
+  const oldURL = window.location.href;
+  if (replace) history.replaceState(history.state, "", url);
+  else history.pushState(null, "", url);
+  // pushState and replaceState do not emit a native hashchange.
+  window.dispatchEvent(new HashChangeEvent("hashchange", { oldURL, newURL: window.location.href }));
+}
+
 export default function Atlas({ initialSession, initialWelcome, publishLogin }: AtlasProps) {
   const [session, setSession] = useState(initialSession);
+  const canShare = session.canShare ?? (session.loggedIn && session.platformSignedIn);
   const [intro, setIntro] = useState<IntroPhase>(initialWelcome ? "welcome" : "idle");
+  const welcomeOnArrival = useRef(initialWelcome);
   const finishWelcome = useCallback(() => {
     startGuide();
     setIntro("guide");
   }, []);
   useLayoutEffect(() => {
     const demo = session.loggedIn ? readDemo() : null;
-    setIntro(demo?.welcome ? "welcome" : demo?.guide ? "guide" : "idle");
-    if (demo?.welcome || demo?.guide) window.scrollTo({ top: 0, behavior: "instant" });
+    const welcome = demo?.welcome || (welcomeOnArrival.current && session.loggedIn && !demo?.active);
+    setIntro(welcome ? "welcome" : demo?.guide ? "guide" : "idle");
+    if (welcome || demo?.guide) window.scrollTo({ top: 0, behavior: "instant" });
+    welcomeOnArrival.current = false;
     const url = new URL(window.location.href);
     if (url.searchParams.has("welcome")) {
       url.searchParams.delete("welcome");
@@ -58,16 +82,17 @@ export default function Atlas({ initialSession, initialWelcome, publishLogin }: 
   }, []);
   const [community, setCommunity] = useState<Voice[]>([]),
     [cursor, setCursor] = useState<string | null>(null);
+  const [archiveRequest, setArchiveRequest] = useState<{ cursor: string | null }>({ cursor: null });
   const [archiveError, setArchiveError] = useState(""),
-    [loading, setLoading] = useState(false);
+    [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState("mara");
   const [filter, setFilter] = useState<Topic | "All themes">("All themes"),
     [shown, setShown] = useState(3);
-  const [hash, setHash] = useState(""),
-    [nav, setNav] = useState("atlas"),
+  const hash = useSyncExternalStore(subscribeToHash, browserHash, serverHash);
+  const [nav, setNav] = useState("atlas"),
     [note, setNote] = useState("");
   const [remoteStory, setRemoteStory] = useState<Voice | null>(null),
-    [deepError, setDeepError] = useState("");
+    [failedStoryId, setFailedStoryId] = useState<string | null>(null);
   const header = useRef<HTMLElement>(null);
   const collection = useRef<HTMLElement>(null);
   const hasModalHistory = useRef(false);
@@ -76,6 +101,7 @@ export default function Atlas({ initialSession, initialWelcome, publishLogin }: 
     (v) => filter === "All themes" || v.topic === filter,
   );
   const storyId = hash.startsWith("#story/") ? hash.slice(7) : "";
+  const deepError = failedStoryId === storyId ? "This story is unavailable. It may have been removed." : "";
   const reader = storyId
     ? voices.find((v) => v.id === storyId) ||
       (remoteStory?.id === storyId ? remoteStory : null)
@@ -117,47 +143,37 @@ export default function Atlas({ initialSession, initialWelcome, publishLogin }: 
     return () => observer.disconnect();
   }, [community, filter, shown]);
 
-  const load = useCallback(async (next?: string) => {
-    setLoading(true);
-    setArchiveError("");
-    try {
-      const res = await fetch(
-        "/api/stories" + (next ? "?cursor=" + encodeURIComponent(next) : ""),
-        { cache: "no-store" },
-      );
+  useEffect(() => {
+    const request = new AbortController();
+    const next = archiveRequest.cursor;
+    const url = "/api/stories" + (next ? "?cursor=" + encodeURIComponent(next) : "");
+    fetch(url, { cache: "no-store", signal: request.signal }).then(async res => {
       const data = (await res.json()) as {
         stories: Voice[];
         cursor: string | null;
         error?: string;
       };
       if (!res.ok) throw Error(data.error);
+      if (request.signal.aborted) return;
       setCommunity((old) => {
         const list: Voice[] = next ? [...old, ...data.stories] : data.stories;
         return [...new Map(list.map((v) => [v.id, v])).values()];
       });
       setCursor(data.cursor);
-    } catch {
-      setArchiveError("Community stories couldn’t load.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    }).catch(() => {
+      if (!request.signal.aborted) setArchiveError("Community stories couldn’t load.");
+    }).finally(() => {
+      if (!request.signal.aborted) setLoading(false);
+    });
+    return () => request.abort();
+  }, [archiveRequest]);
   useEffect(() => {
-    void load();
-  }, [load]);
-  useEffect(() => {
-    const change = () => setHash(window.location.hash);
-    change();
-    if (new URLSearchParams(window.location.search).get("share") === "1") {
-      history.replaceState(null, "", "/#share");
-      setHash("#share");
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("share") === "1") {
+      url.searchParams.delete("share");
+      url.hash = "share";
+      writeHash(url.href, true);
     }
-    window.addEventListener("hashchange", change);
-    window.addEventListener("popstate", change);
-    return () => {
-      window.removeEventListener("hashchange", change);
-      window.removeEventListener("popstate", change);
-    };
   }, []);
   useEffect(() => {
     const element = collection.current;
@@ -175,16 +191,17 @@ export default function Atlas({ initialSession, initialWelcome, publishLogin }: 
   useEffect(() => {
     if (!storyId || reader) return;
     let valid = true;
-    setDeepError("");
     fetch("/api/stories?id=" + encodeURIComponent(storyId))
       .then(async (res) => {
         const data = (await res.json()) as { story: Voice; error?: string };
         if (!res.ok) throw Error(data.error);
-        if (valid) setRemoteStory(data.story);
+        if (valid) {
+          setFailedStoryId(null);
+          setRemoteStory(data.story);
+        }
       })
       .catch(() => {
-        if (valid)
-          setDeepError("This story is unavailable. It may have been removed.");
+        if (valid) setFailedStoryId(storyId);
       });
     return () => {
       valid = false;
@@ -197,20 +214,15 @@ export default function Atlas({ initialSession, initialWelcome, publishLogin }: 
   }, [note]);
 
   function open(route: string) {
-    if (inDialog) history.replaceState(null, "", route);
-    else {
-      history.pushState(null, "", route);
-      hasModalHistory.current = true;
-    }
-    setHash(route);
+    writeHash(route, inDialog);
+    if (!inDialog) hasModalHistory.current = true;
   }
   function close() {
     if (hasModalHistory.current) {
       hasModalHistory.current = false;
       history.back();
     } else {
-      history.replaceState(null, "", location.pathname);
-      setHash("");
+      writeHash(location.pathname, true);
     }
   }
   function share() {
@@ -218,7 +230,7 @@ export default function Atlas({ initialSession, initialWelcome, publishLogin }: 
       finishGuide("skipped");
       setIntro("idle");
     }
-    if (session.loggedIn && !session.platformSignedIn) {
+    if (session.loggedIn && !canShare) {
       window.open(publishLogin, "_top");
     } else {
       open("#share");
@@ -231,13 +243,10 @@ export default function Atlas({ initialSession, initialWelcome, publishLogin }: 
       setNote("Log out could not be completed. Please try again.");
     }
   }
-  function published(voice: Voice) {
-    setCommunity((old) => [voice, ...old.filter((v) => v.id !== voice.id)]);
-    setSelected(voice.id);
-    setFilter("All themes");
-    setShown(3);
-    setNote("Your story is in the atlas.");
-    open("#story/" + voice.id);
+  function submitted(status: ReviewStatus) {
+    close();
+    setNote(status === "pending" ? "Your story was sent for review. It will appear in the atlas after approval."
+      : status === "approved" ? "Your story has already been approved." : "Your submission was reviewed and declined.");
   }
   function remove(id: string) {
     setCommunity((old) => old.filter((v) => v.id !== id));
@@ -245,8 +254,14 @@ export default function Atlas({ initialSession, initialWelcome, publishLogin }: 
     if (selected === id) setSelected("mara");
     setNote("Your story has been removed.");
   }
+  function requestArchivePage() {
+    if (loading) return;
+    setLoading(true);
+    setArchiveError("");
+    setArchiveRequest({ cursor });
+  }
   const showMore = () => {
-    if (shown >= filtered.length && cursor) void load(cursor);
+    if (shown >= filtered.length && cursor) requestArchivePage();
     setShown((n) => n + 6);
   };
   return (
@@ -284,6 +299,7 @@ export default function Atlas({ initialSession, initialWelcome, publishLogin }: 
             >
               About RYE
             </button>
+            {session.canReview && <a href="/admin">Review desk</a>}
             {session.loggedIn
               ? <button type="button" onClick={logOut}>Log out</button>
               : <a href="/login">Log in</a>}
@@ -363,7 +379,8 @@ export default function Atlas({ initialSession, initialWelcome, publishLogin }: 
                 <button
                   type="button"
                   className="text-link"
-                  onClick={() => void load()}
+                  onClick={requestArchivePage}
+                  disabled={loading}
                 >
                   Try again
                 </button>
@@ -418,15 +435,15 @@ export default function Atlas({ initialSession, initialWelcome, publishLogin }: 
       </footer>
       {hash === "#about" && <About close={close} share={share} />}
       {hash === "#share" && intro === "idle" &&
-        (session.loggedIn && session.platformSignedIn ? (
-          <ShareForm close={close} published={published} />
+        (canShare ? (
+          <ShareForm close={close} submitted={submitted} />
         ) : (
           <Dialog close={close} titleId="dialog-title" variant="compose" label="Share a voice">
             <div className="sign-in-letter">
               <h2 id="dialog-title">{session.loggedIn ? <>Share your <em>story.</em></> : <>Log in to <em>write.</em></>}</h2>
               <p className="sheet-intro">
                 {session.loggedIn
-                  ? "Continue with ChatGPT to publish and manage your story under the display name you choose."
+                  ? "Continue with ChatGPT to submit your story for review under the display name you choose."
                   : "Log in or sign up to write your own story. You can read the atlas anytime."}
               </p>
               <div className="dialog-actions">
@@ -442,7 +459,7 @@ export default function Atlas({ initialSession, initialWelcome, publishLogin }: 
         (reader ? (
           <Reader
             key={reader.id}
-            story={session.loggedIn && session.platformSignedIn ? reader : { ...reader, mine: false }}
+            story={canShare ? reader : { ...reader, mine: false }}
             close={close}
             onRemove={remove}
           />

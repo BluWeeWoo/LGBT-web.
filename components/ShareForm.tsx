@@ -10,7 +10,9 @@ import { PhotoPicker, paperColors } from "./StoryPhotos";
 import { Postcard } from "./VoiceArt";
 import { usePortraitPrint } from "../hooks/use-portrait-print";
 
-export function ShareForm({ close, published }: { close: () => void; published: (story: Voice) => void }) {
+import type { ReviewStatus } from "../lib/review-types";
+
+export function ShareForm({ close, submitted }: { close: () => void; submitted: (status: ReviewStatus) => void }) {
   const [name, setName] = useState("");
   const [place, setPlace] = useState("");
   const [title, setTitle] = useState("");
@@ -54,7 +56,7 @@ export function ShareForm({ close, published }: { close: () => void; published: 
     setError("");
     setPreview(true);
   }
-  async function publish(event: FormEvent) {
+  async function submitForReview(event: FormEvent) {
     event.preventDefault();
     if (!consent || busy) return;
     setBusy(true);
@@ -65,9 +67,9 @@ export function ShareForm({ close, published }: { close: () => void; published: 
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...data, id: submissionId.current, consent }),
       });
-      const result = await response.json() as { story: Voice; error?: string };
-      if (!response.ok) throw Error(result.error || "Your story could not be published.");
-      published(result.story);
+      const result = await response.json() as { status: ReviewStatus; error?: string };
+      if (!response.ok) throw Error(result.error || "Your story could not be submitted.");
+      submitted(result.status);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Please try again. Your draft is still here.");
       setBusy(false);
@@ -79,16 +81,16 @@ export function ShareForm({ close, published }: { close: () => void; published: 
       <div ref={content} tabIndex={-1} className="draft-content">
         {preview ? <>
           <StoryText story={data} />
-          <form onSubmit={publish} className="folio-end">
+          <form onSubmit={submitForReview} className="folio-end">
             <label className="consent">
               <input type="checkbox" required checked={consent} onChange={e => setConsent(e.target.checked)} />
-              <span>I want people who can access RYE to see this story{photos.length ? ", the photos I chose," : ""} and the details shown here.</span>
+              <span>I agree to share this story{photos.length ? ", my selected photos," : ""} and these details on RYE if a reviewer approves it.</span>
             </label>
             <div className="dialog-actions">
               <button type="button" className="text-link" disabled={busy}
                 onClick={() => { setPreview(false); setConsent(false); setError(""); }}>Back to editing</button>
               <button type="submit" className="btn dark" disabled={busy || !consent}>
-                {busy ? "Publishing…" : "Publish my story"}<Check size={16} />
+                {busy ? "Submitting…" : "Submit for review"}<Check size={16} />
               </button>
             </div>
             {error && <p role="alert" className="error">{error}</p>}
@@ -98,7 +100,7 @@ export function ShareForm({ close, published }: { close: () => void; published: 
             <aside className="writing-cover" style={paperColors(flag)}>
               <div className="cover-copy">
                 <h2 id="dialog-title">Share your <em>story.</em></h2>
-                <p>Write it in your own words. You’ll see how your story looks before you publish.</p>
+                <p>Write it in your own words. Preview your story, then send it to RYE for review.</p>
               </div>
               <figure className="cover-postcard">
                 <Postcard voice={data} />
