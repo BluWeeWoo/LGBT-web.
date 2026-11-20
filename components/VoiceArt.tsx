@@ -12,6 +12,9 @@ const colors = [
   "#c8d5b8",
   "#c4cfe4",
   "#e6c5cc",
+  "#e8c7b9",
+  "#c4d2bd",
+  "#cec2e3",
 ];
 function UploadedPortrait({ photo }: { photo: StoryPhoto }) {
   // Previously published photos have an original but no stored print.

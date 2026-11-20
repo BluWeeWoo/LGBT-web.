@@ -7,7 +7,7 @@ import { ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, Check, ChevronRight, Clo
 import type { ReviewPage, ReviewStatus, ReviewStory } from "../lib/review-types";
 import { reviewStates } from "../lib/review-types";
 import { flagThemes } from "../lib/voices";
-import { followSession, leaveDemo } from "../lib/demo-session";
+import { followSession, logOutAccount } from "../lib/account-session";
 import { Brand } from "./Brand";
 import Globe from "./Globe";
 import { Dialog } from "./Dialog";
@@ -23,7 +23,7 @@ function queueLink(status: ReviewStatus, query = "", cursor?: string) {
   const params = new URLSearchParams({ status });
   if (query) params.set("q", query);
   if (cursor) params.set("cursor", cursor);
-  return "/admin?" + params;
+  return "/admin/?" + params;
 }
 
 type Props = { page: ReviewPage | null; status: ReviewStatus; query: string; paged: boolean };
@@ -65,7 +65,7 @@ export default function ReviewDesk({ page, status, query, paged }: Props) {
     } finally { setBusy(false); }
   }
   async function logOut() {
-    try { followSession(await leaveDemo()); }
+    try { followSession(await logOutAccount()); }
     catch { setNotice("Could not log out. Please try again."); }
   }
   return (
@@ -111,7 +111,7 @@ export default function ReviewDesk({ page, status, query, paged }: Props) {
         <section className="review-queue" aria-labelledby="queue-heading">
           <div className="review-tools">
             <h2 ref={queue} id="queue-heading" tabIndex={-1}>{status === "pending" ? "Review queue" : labels[status] + " stories"}</h2>
-            <form action="/admin" role="search"><input type="hidden" name="status" value={status}/>
+            <form action="/admin/" role="search"><input type="hidden" name="status" value={status}/>
               <input type="search" aria-label="Search by title or author" name="q" defaultValue={query} maxLength={100} placeholder="Search title or author"/>
               <button aria-label="Search submissions"><Search size={17}/></button>
             </form>

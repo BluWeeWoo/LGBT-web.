@@ -178,6 +178,57 @@ By sunset the plates were still packed, so we ate out of mugs. We played songs f
 
 I had worried that a new place would take months to feel like home. Now I can stand in that small kitchen, press play, and hear the room fill up again. Our playlist keeps getting longer.`,
   },
+  {
+    id: "ines",
+    name: "Inés",
+    place: "Spain",
+    title: "The spare screw",
+    quote: "I said “my wife” over a pile of tiny screws, and the man next to me asked if she could fix his lamp too.",
+    flag: "lesbian",
+    topic: "Belonging",
+    portrait: 6,
+    center: [-3.7, 40.4],
+    sample: true,
+    body: `My wife Ana sent me to the Saturday repair café with a desk lamp and one instruction: take a photo before you undo anything. Five minutes later I had six screws on the table and no idea where the sixth had come from.
+
+The man next to me held out a saucer for the screws. I told him my wife would have remembered which one went where. He asked if she could have a look at his lamp too. We both leaned back over the table. I’d spent years deciding when it felt safe to say those two words. Sometimes I still hear myself say them before I hear the rest of the sentence.
+
+I brought Ana the next Saturday. He’d brought a second saucer. By noon she had his lamp working, and I had finally found the hole for that spare screw.`,
+  },
+  {
+    id: "tavita",
+    name: "Tavita",
+    place: "New Zealand",
+    title: "The second key",
+    quote: "The next Saturday I got there early enough to open the gate for somebody else.",
+    flag: "nonbinary",
+    topic: "Belonging",
+    portrait: 7,
+    center: [174.8, -36.9],
+    sample: true,
+    body: `When I joined the community garden, I spent a month waiting outside the gate until someone let me in. I always got there first. It took me that long to ask whether the key in the shed was for everyone.
+
+At the next workday I put they and them beside my name on the volunteer board. Later I heard someone get it wrong. Mei corrected them while she was tying a tomato plant to a stake. By the time I carried the watering can over, they were discussing slugs.
+
+A week later Mei gave me the second gate key. She said she hated getting up early and had noticed that I liked it. The next Saturday I got there in time to open the gate for a woman carrying a tray of seedlings. She asked if it was all right to come in. I said yes and showed her where we kept the spare gloves.`,
+  },
+  {
+    id: "leila",
+    name: "Leila",
+    place: "Canada",
+    title: "One more stop",
+    quote: "She offered to ride one more stop with me. I asked if we could make it two.",
+    flag: "bi",
+    topic: "Speaking up",
+    portrait: 8,
+    center: [-123.1, 49.3],
+    sample: true,
+    body: `Our book club met down the street from the last bus stop. In January we picked a novel about a woman who kept changing her plans to suit everyone around her. I’d written three notes in the margins and crossed out all three.
+
+When it was my turn, I said I was bi and that I recognized the feeling of letting other people tell me what my own life meant. Jules asked which page I’d marked. It was page eighty-two. She turned to it and read a sentence I’d missed. We spent the next ten minutes arguing about whether the character should sell her car.
+
+On the way home, Jules offered to ride one more stop with me. I asked if we could make it two. I remember the windows steaming up while we tried to pick a book for February.`,
+  },
 ];
 
 export function excerpt(body: string) {

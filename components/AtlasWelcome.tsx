@@ -2,7 +2,6 @@
 
 import { useLayoutEffect, useRef, useState } from "react";
 import { Bloom } from "./Brand";
-import { finishGuide } from "../lib/demo-session";
 
 export type IntroPhase = "idle" | "welcome" | "guide";
 
@@ -29,8 +28,7 @@ export default function AtlasWelcome({ phase, setPhase }: { phase: IntroPhase; s
     return () => target.classList.remove("guide-highlight");
   }, [phase, step]);
 
-  function dismiss(outcome: "finished" | "skipped") {
-    finishGuide(outcome);
+  function dismiss() {
     setPhase("idle");
     document.querySelector<HTMLElement>(steps[step].focus)?.focus({ preventScroll: true });
   }
@@ -38,15 +36,15 @@ export default function AtlasWelcome({ phase, setPhase }: { phase: IntroPhase; s
   if (phase !== "guide") return null;
   return (
     <aside className="atlas-guide" aria-labelledby="guide-title" aria-describedby="guide-instruction"
-      ref={panel} tabIndex={-1} onKeyDown={e => { if (e.key === "Escape") dismiss("skipped"); }}>
+      ref={panel} tabIndex={-1} onKeyDown={e => { if (e.key === "Escape") dismiss(); }}>
       <div className="guide-progress"><Bloom /><span>Atlas guide · {step + 1} of {steps.length}</span></div>
       <h2 id="guide-title">{steps[step].title}</h2>
       <p id="guide-instruction">{steps[step].text}</p>
       <div className="guide-actions">
-        <button className="text-link" type="button" onClick={() => dismiss("skipped")}>Skip</button>
+        <button className="text-link" type="button" onClick={dismiss}>Skip</button>
         {step < steps.length - 1
           ? <button className="btn dark" type="button" onClick={() => setStep(step + 1)}>Next</button>
-          : <button className="btn dark" type="button" onClick={() => dismiss("finished")}>Got it</button>}
+          : <button className="btn dark" type="button" onClick={dismiss}>Got it</button>}
       </div>
     </aside>
   );

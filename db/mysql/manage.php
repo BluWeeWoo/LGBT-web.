@@ -2,6 +2,9 @@
 declare(strict_types=1);
 if (PHP_SAPI !== 'cli') exit(1);
 require __DIR__ . '/connection.php';
+require __DIR__ . '/stories.php';
+require __DIR__ . '/photo-files.php';
+require __DIR__ . '/migrate.php';
 
 function reportDatabaseError(PDOException $error, array $settings, bool $setupLogin): string {
     $number = (int)($error->errorInfo[1] ?? 0);
@@ -29,27 +32,44 @@ $setupLogin = false;
 try {
     $root = dirname(__DIR__, 2);
     $settings = ryeSettings();
-    if ($argv[1] === 'install') {
+    $command = $argv[1] ?? '';
+    if (in_array($command, ['install', 'migrate-local'], true)) {
         $setupLogin = true;
-        $db = new PDO('mysql:host=127.0.0.1;port=' . $settings['DB_PORT'] . ';charset=utf8mb4',
-            getenv('RYE_MYSQL_SETUP_USER') ?: 'root', getenv('RYE_MYSQL_SETUP_PASSWORD') ?: '',
-            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_TIMEOUT => 4]);
-        $script = file_get_contents($root . '/.env.rye-bootstrap.sql');
-        foreach (preg_split('/;\h*(?:\R|$)/', $script) as $statement) {
-            if (trim($statement) !== '') $db->exec($statement);
+        $setupUser = getenv('RYE_MYSQL_SETUP_USER') ?: 'root';
+        $setupPassword = getenv('RYE_MYSQL_SETUP_PASSWORD') ?: '';
+        if ($command === 'install') {
+            $db = new PDO('mysql:host=127.0.0.1;port=' . $settings['DB_PORT'] . ';charset=utf8mb4',
+                $setupUser, $setupPassword, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_TIMEOUT => 4]);
+            $script = file_get_contents($root . '/.env.rye-bootstrap.sql');
+            if ($script === false) throw new RuntimeException('Missing local setup SQL.');
+            foreach (preg_split('/;\h*(?:\R|$)/', $script) as $statement) {
+                if (trim($statement) !== '') $db->exec($statement);
+            }
         }
+        $db = ryeDb(array_replace($settings, ['DB_USER' => $setupUser, 'DB_PASSWORD' => $setupPassword]));
+        migrateDatabase($db);
         // Verify that the limited application account can use the installed schema.
         $setupLogin = false;
         runQuery(ryeDb($settings), 'SELECT id FROM users LIMIT 1');
-    } elseif (in_array($argv[1], ['admin', 'init-admin'], true)) {
-        $config = is_file($root . '/.env.mysql.json') ? json_decode(file_get_contents($root . '/.env.mysql.json'), true) : [];
-        $email = getenv('RYE_ADMIN_EMAIL') ?: ($config['ADMIN_EMAIL'] ?? '');
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) throw new RuntimeException('Set RYE_ADMIN_EMAIL to the reserved reviewer address.');
+    } elseif ($command === 'migrate') {
+        $db = ryeDb($settings);
+        migrateDatabase($db);
+        echo "RYE database migrations are up to date.\n";
+    } elseif (in_array($command, ['admin', 'init-admin'], true)) {
+        $email = strtolower(trim(getenv('RYE_ADMIN_EMAIL') ?: $settings['ADMIN_EMAIL']));
+        if (strlen($email) > 254 || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new RuntimeException('Set ADMIN_EMAIL to the reviewer address.');
+        }
         $db = ryeDb($settings);
         $db->beginTransaction();
-        $reviewer = runQuery($db, "SELECT id, password_hash FROM users WHERE email = ? AND role = 'admin' FOR UPDATE", [$email])->fetch();
-        if (!$reviewer) throw new RuntimeException('The reserved admin account was not found. Check the database setup.');
-        if ($argv[1] === 'init-admin' && $reviewer['password_hash'] !== null) {
+        $reviewer = runQuery($db, 'SELECT id, password_hash, role FROM users WHERE email = ? FOR UPDATE', [$email])->fetch();
+        if (!$reviewer) {
+            $reviewer = ['id' => ryeUuid(), 'role' => 'admin', 'password_hash' => null];
+            runQuery($db, "INSERT INTO users (id, email, display_name, role) VALUES (?, ?, 'RYE reviewer', 'admin')",
+                [$reviewer['id'], $email]);
+        }
+        if ($reviewer['role'] !== 'admin') throw new RuntimeException('This email belongs to a member account. Use a separate reviewer address.');
+        if ($command === 'init-admin' && $reviewer['password_hash'] !== null) {
             $db->commit();
             echo "Sign in with the existing RYE reviewer password for $email.\n";
             return;

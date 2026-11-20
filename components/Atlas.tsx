@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ArrowDown, ArrowUp, ArrowUpRight, Check, ChevronDown, Feather, SlidersHorizontal, X } from "lucide-react";
 import { samples, topics, type Topic, type Voice } from "../lib/voices";
 import { Brand, Bloom } from "./Brand";
@@ -10,11 +10,8 @@ import { Dialog } from "./Dialog";
 import { ShareForm } from "./ShareForm";
 import { Postcard } from "./VoiceArt";
 import AtlasWelcome, { type IntroPhase } from "./AtlasWelcome";
-import { finishGuide, followSession, leaveDemo, readDemo, startGuide } from "../lib/demo-session";
-import type { StorySession } from "../lib/story-access";
+import { followSession, logOutAccount, type StorySession } from "../lib/account-session";
 import type { ReviewStatus } from "../lib/review-types";
-
-type AtlasProps = { initialSession: StorySession; initialWelcome: boolean; publishLogin: string };
 
 function subscribeToHash(change: () => void) {
   window.addEventListener("hashchange", change);
@@ -35,27 +32,11 @@ function writeHash(url: string, replace: boolean) {
   window.dispatchEvent(new HashChangeEvent("hashchange", { oldURL, newURL: window.location.href }));
 }
 
-export default function Atlas({ initialSession, initialWelcome, publishLogin }: AtlasProps) {
-  const [session, setSession] = useState(initialSession);
-  const canShare = session.canShare ?? (session.loggedIn && session.platformSignedIn);
-  const [intro, setIntro] = useState<IntroPhase>(initialWelcome ? "welcome" : "idle");
-  const welcomeOnArrival = useRef(initialWelcome);
-  const finishWelcome = useCallback(() => {
-    startGuide();
-    setIntro("guide");
-  }, []);
-  useLayoutEffect(() => {
-    const demo = session.loggedIn ? readDemo() : null;
-    const welcome = demo?.welcome || (welcomeOnArrival.current && session.loggedIn && !demo?.active);
-    setIntro(welcome ? "welcome" : demo?.guide ? "guide" : "idle");
-    if (welcome || demo?.guide) window.scrollTo({ top: 0, behavior: "instant" });
-    welcomeOnArrival.current = false;
-    const url = new URL(window.location.href);
-    if (url.searchParams.has("welcome")) {
-      url.searchParams.delete("welcome");
-      history.replaceState(history.state, "", url);
-    }
-  }, [session.loggedIn]);
+export default function Atlas() {
+  const [session, setSession] = useState<StorySession>({ loggedIn: false, canReview: false });
+  const canShare = session.loggedIn;
+  const [intro, setIntro] = useState<IntroPhase>("idle");
+  const finishWelcome = useCallback(() => setIntro("guide"), []);
   useEffect(() => {
     // Recheck the cookie on a history restore or after login/logout in another tab.
     let pending: AbortController | undefined;
@@ -65,13 +46,25 @@ export default function Atlas({ initialSession, initialWelcome, publishLogin }: 
       const request = new AbortController();
       pending = request;
       try {
-        const response = await fetch("/api/demo-session", { cache: "no-store", signal: request.signal });
+        const response = await fetch("/api/session", { cache: "no-store", signal: request.signal });
         if (response.ok) {
           const current: StorySession = await response.json();
-          if (!request.signal.aborted) setSession(current);
+          if (request.signal.aborted) return;
+          setSession(current);
+          if (!current.loggedIn) setIntro("idle");
+          const url = new URL(window.location.href);
+          if (url.searchParams.get("welcome") === "1") {
+            if (current.loggedIn) {
+              setIntro("welcome");
+              window.scrollTo({ top: 0, behavior: "instant" });
+            }
+            url.searchParams.delete("welcome");
+            history.replaceState(history.state, "", url);
+          }
         }
       } catch { /* A write always rechecks both login and ownership on the server. */ }
     }
+    void sync();
     window.addEventListener("pageshow", sync);
     document.addEventListener("visibilitychange", sync);
     return () => {
@@ -96,7 +89,7 @@ export default function Atlas({ initialSession, initialWelcome, publishLogin }: 
   const header = useRef<HTMLElement>(null);
   const collection = useRef<HTMLElement>(null);
   const hasModalHistory = useRef(false);
-  const voices = [...community, ...samples];
+  const voices = useMemo(() => [...community, ...samples], [community]);
   const filtered = voices.filter(
     (v) => filter === "All themes" || v.topic === filter,
   );
@@ -226,19 +219,12 @@ export default function Atlas({ initialSession, initialWelcome, publishLogin }: 
     }
   }
   function share() {
-    if (intro === "guide") {
-      finishGuide("skipped");
-      setIntro("idle");
-    }
-    if (session.loggedIn && !canShare) {
-      window.open(publishLogin, "_top");
-    } else {
-      open("#share");
-    }
+    if (intro === "guide") setIntro("idle");
+    open("#share");
   }
   async function logOut() {
     try {
-      followSession(await leaveDemo());
+      followSession(await logOutAccount());
     } catch {
       setNote("Log out could not be completed. Please try again.");
     }
@@ -440,17 +426,11 @@ export default function Atlas({ initialSession, initialWelcome, publishLogin }: 
         ) : (
           <Dialog close={close} titleId="dialog-title" variant="compose" label="Share a voice">
             <div className="sign-in-letter">
-              <h2 id="dialog-title">{session.loggedIn ? <>Share your <em>story.</em></> : <>Log in to <em>write.</em></>}</h2>
-              <p className="sheet-intro">
-                {session.loggedIn
-                  ? "Continue with ChatGPT to submit your story for review under the display name you choose."
-                  : "Log in or sign up to write your own story. You can read the atlas anytime."}
-              </p>
+              <h2 id="dialog-title">Log in to <em>write.</em></h2>
+              <p className="sheet-intro">Log in or sign up to write your own story. You can read the atlas anytime.</p>
               <div className="dialog-actions">
-                {session.loggedIn
-                  ? <a className="btn dark" href={publishLogin} target="_top">Continue with ChatGPT</a>
-                  : <><a className="btn dark" href="/login?next=share">Log in</a>
-                    <a className="text-link" href="/signup?next=share">Sign up</a></>}
+                <a className="btn dark" href="/login/?next=share">Log in</a>
+                <a className="text-link" href="/signup/?next=share">Sign up</a>
               </div>
             </div>
           </Dialog>

@@ -1,24 +1,14 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { atlasTilt, isLand, maskWidth as width, maskHeight as height } from "../lib/atlas-land";
+import { globeRadius, radians, shortestTurn, type GlobeView } from "../lib/globe-view";
 const tau = Math.PI * 2;
-type Draw = (longitude: number) => void;
+type Draw = (view: GlobeView) => void;
 
-// Precompute the projection for a fixed camera tilt. Turning the globe then
-// requires only a longitude offset, so the land and grid stay together.
-function makeProjection(canvas: HTMLCanvasElement): Draw {
+function makeProjection(canvas: HTMLCanvasElement, size: number): Draw {
   const ctx = canvas.getContext("2d");
   if (!ctx) return () => {};
-  const size = Math.min(
-    800,
-    Math.max(
-      225,
-      Math.round(
-        canvas.clientWidth * Math.min(1.8, window.devicePixelRatio || 1),
-      ),
-    ),
-  );
   canvas.width = size;
   canvas.height = size;
   const img = ctx.createImageData(size, size);
@@ -27,24 +17,20 @@ function makeProjection(canvas: HTMLCanvasElement): Draw {
     lat = new Float32Array(count);
   const shade = new Float32Array(count),
     grain = new Float32Array(count);
-  const radius = size / 2 - 1.7;
-  const sinTilt = Math.sin(atlasTilt),
-    cosTilt = Math.cos(atlasTilt);
+  const radius = size * globeRadius;
+  const axis = Float32Array.from({ length: size }, (_, i) => (i - size / 2) / radius);
+  const depth = new Float32Array(count);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const i = y * size + x;
-      const nx = (x - size * 0.5) / radius,
-        ny = (size * 0.5 - y) / radius;
+      const nx = axis[x], ny = -axis[y];
       const d = nx * nx + ny * ny;
       if (d >= 1) {
         lat[i] = -1;
         continue;
       }
       const nz = Math.sqrt(1 - d);
-      lat[i] =
-        (0.5 - Math.asin(ny * cosTilt + nz * sinTilt) / Math.PI) * height;
-      lon[i] =
-        (0.5 + Math.atan2(nx, nz * cosTilt - ny * sinTilt) / tau) * width;
+      depth[i] = nz;
       const lighting = -nx * 0.43 + ny * 0.5 + nz * 0.72;
       shade[i] = lighting * 17 - Math.pow(d, 2.2) * 14;
       let hash = Math.imul(x + y * size + 7, 0x45d9f3b);
@@ -56,8 +42,26 @@ function makeProjection(canvas: HTMLCanvasElement): Draw {
       );
     }
   }
-  return (longitude) => {
-    const delta = (longitude * width) / 360;
+
+  let previousLatitude: number | undefined;
+  return ({ longitude, latitude }) => {
+    // Reuse the inverse projection when the view turns at the same latitude.
+    if (previousLatitude !== latitude) {
+      const sin = Math.sin(latitude * radians), cos = Math.cos(latitude * radians);
+      for (let y = 0; y < size; y++) {
+        const ny = -axis[y];
+        for (let x = 0; x < size; x++) {
+          const i = y * size + x;
+          const nz = depth[i];
+          if (nz <= 0) continue;
+          const north = Math.max(-1, Math.min(1, ny * cos + nz * sin));
+          lat[i] = (0.5 - Math.asin(north) / Math.PI) * height;
+          lon[i] = (0.5 + Math.atan2(axis[x], nz * cos - ny * sin) / tau) * width;
+        }
+      }
+      previousLatitude = latitude;
+    }
+    const delta = ((longitude % 360) * width) / 360;
     for (let i = 0; i < count; i++) {
       const v = lat[i];
       if (v < 0) continue;
@@ -91,19 +95,28 @@ function makeProjection(canvas: HTMLCanvasElement): Draw {
   };
 }
 
-export default function Globe({ longitude }: { longitude: number }) {
+type Props = { longitude: number; latitude?: number; onView?: (view: GlobeView) => void };
+
+export default function Globe({ longitude, latitude = atlasTilt / radians, onView }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const current = useRef(longitude);
+  const current = useRef({ longitude, latitude });
+  const moving = useRef(false);
   const draw = useRef<Draw | null>(null);
+  const paint = useCallback((view: GlobeView) => {
+    const el = canvas.current!;
+    const pixels = Math.round(el.clientWidth * Math.min(1.8, window.devicePixelRatio || 1));
+    // A smaller frame during motion keeps the changing two-axis projection responsive.
+    const size = Math.min(moving.current ? 360 : 800, Math.max(225, pixels));
+    if (!draw.current || el.width !== size) draw.current = makeProjection(el, size);
+    draw.current(view);
+    onView?.(view);
+  }, [onView]);
   useEffect(() => {
     const el = canvas.current!;
     let frame = 0;
     function resize() {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        draw.current = makeProjection(el);
-        draw.current(current.current);
-      });
+      frame = requestAnimationFrame(() => paint(current.current));
     }
     const observer = new ResizeObserver(resize);
     observer.observe(el);
@@ -113,29 +126,34 @@ export default function Globe({ longitude }: { longitude: number }) {
       cancelAnimationFrame(frame);
       draw.current = null;
     };
-  }, []);
+  }, [paint]);
   useEffect(() => {
     const start = current.current;
-    const arc = ((longitude - start + 540) % 360) - 180;
-    if (
-      Math.abs(arc) < 0.01 ||
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    ) {
-      current.current = longitude;
-      draw.current?.(longitude);
+    const arc = shortestTurn(start.longitude, longitude);
+    const tilt = latitude - start.latitude;
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const target = { longitude, latitude };
+    if (motion.matches || Math.max(Math.abs(arc), Math.abs(tilt)) < 0.01) {
+      moving.current = false;
+      current.current = target;
+      paint(target);
       return;
     }
     const began = performance.now();
     let frame = 0;
     function turn(now: number) {
-      const phase = Math.min(1, (now - began) / 750);
-      current.current = start + arc * (1 - Math.pow(1 - phase, 3));
-      draw.current?.(current.current);
-      if (phase < 1) frame = requestAnimationFrame(turn);
+      const phase = motion.matches ? 1 : Math.min(1, (now - began) / 750);
+      const progress = 1 - (1 - phase) ** 3;
+      moving.current = phase < 1;
+      current.current = moving.current
+        ? { longitude: start.longitude + arc * progress, latitude: start.latitude + tilt * progress }
+        : target;
+      paint(current.current);
+      if (moving.current) frame = requestAnimationFrame(turn);
     }
     frame = requestAnimationFrame(turn);
     return () => cancelAnimationFrame(frame);
-  }, [longitude]);
+  }, [latitude, longitude, paint]);
   return (
     <canvas
       className="earth"

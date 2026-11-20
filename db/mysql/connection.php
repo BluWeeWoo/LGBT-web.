@@ -5,7 +5,7 @@ function ryeSettings(): array {
     $path = dirname(__DIR__, 2) . '/.env.mysql.json';
     $local = is_file($path) ? json_decode(file_get_contents($path), true, 16, JSON_THROW_ON_ERROR) : [];
     $options = [];
-    foreach (['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'API_TOKEN', 'DB_CA'] as $key) {
+    foreach (['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_CA', 'APP_ORIGIN', 'ADMIN_EMAIL'] as $key) {
         $value = getenv('RYE_MYSQL_' . $key);
         $options[$key] = $value !== false ? $value : ($local[$key] ?? '');
     }

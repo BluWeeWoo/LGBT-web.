@@ -1,29 +1,15 @@
 "use client";
 
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUpRight, Globe2, Hand, MapPin } from "lucide-react";
 import type { Voice } from "../lib/voices";
-import { regionCenter } from "../lib/regions";
-import { atlasTilt } from "../lib/atlas-land";
+import { portraitAnchor } from "../lib/globe-view";
 import { FlagChip } from "./Dialogs";
 import FlagBackdrop from "./FlagBackdrop";
 import AtlasGlobe from "./AtlasGlobe";
 import { Face } from "./VoiceArt";
 
-const slots = [[73, 57], [17, 49], [68, 13], [35, 18], [88, 32], [42, 82]];
 const serial = (n: number) => String(n).padStart(2, "0");
-
-function frontPosition(center: [number, number] | undefined, longitude: number) {
-  if (!center) return { left: "60%", top: "48%" };
-  const rad = Math.PI / 180;
-  const lat = center[1] * rad, angle = (center[0] - longitude) * rad;
-  const x = Math.cos(lat) * Math.sin(angle);
-  const y = Math.cos(lat) * Math.cos(angle) * Math.sin(atlasTilt) - Math.sin(lat) * Math.cos(atlasTilt);
-  const roll = -9 * rad;
-  const dx = x * Math.cos(roll) - y * Math.sin(roll);
-  const dy = x * Math.sin(roll) + y * Math.cos(roll);
-  return { left: `calc(50% + ${48 * dx}cqh)`, top: `${48 + 48 * dy}%` };
-}
 
 type Props = {
   voices: Voice[];
@@ -37,9 +23,8 @@ type Props = {
 export default function FeaturedPeople({ voices, selectedId, select, read, arriving, onArrived }: Props) {
   const index = Math.max(0, voices.findIndex(v => v.id === selectedId));
   const active = voices[index];
-  const center = active.center || regionCenter(active.place);
-  const longitude = center ? center[0] - 15 : 58;
-  const first = Math.floor(index / slots.length) * slots.length;
+  const pins = useMemo(() => voices.map(voice => ({ voice, anchor: portraitAnchor(voice) })), [voices]);
+  const stage = useRef<HTMLDivElement>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
   const lastSwipe = useRef(-Infinity);
   const paper = useRef<HTMLDivElement>(null);
@@ -50,6 +35,7 @@ export default function FeaturedPeople({ voices, selectedId, select, read, arriv
       onKeyDown={e => {
         if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
         e.preventDefault();
+        if ((e.target as HTMLElement).closest(".voice-pin")) stage.current?.focus({ preventScroll: true });
         step(e.key === "ArrowLeft" ? -1 : 1);
       }}>
       <FlagBackdrop flag={active.flag}/>
@@ -60,7 +46,7 @@ export default function FeaturedPeople({ voices, selectedId, select, read, arriv
           <h1 id="atlas-title">A world of <em>stories.</em></h1>
         </div>
         <div className="atlas-visual">
-          <div className="globe-stage" onTouchStart={e => {
+          <div className="globe-stage" ref={stage} tabIndex={-1} onTouchStart={e => {
             swipe.current = { x:e.touches[0].clientX, y:e.touches[0].clientY };
           }} onTouchCancel={() => { swipe.current = null; }}
             onTouchEnd={e => {
@@ -76,20 +62,13 @@ export default function FeaturedPeople({ voices, selectedId, select, read, arriv
             <span className="orbit orbit-back" aria-hidden="true"/>
             <span className="orbit orbit-side" aria-hidden="true"/>
             <span className="world-shadow" aria-hidden="true"/>
-            <AtlasGlobe longitude={longitude} arriving={arriving} paper={paper} onArrived={onArrived}/>
+            <AtlasGlobe view={pins[index].anchor} pins={pins} selectedId={active.id}
+              select={id => { if (performance.now() - lastSwipe.current > 300) select(id); }}
+              arriving={arriving} paper={paper} onArrived={onArrived}/>
             <span className="orbit-dot orbit-dot-a" aria-hidden="true"/>
             <span className="orbit-dot orbit-dot-b" aria-hidden="true"/>
             <span className="spark spark-a" aria-hidden="true">✦</span>
             <span className="spark spark-b" aria-hidden="true">✧</span>
-            {voices.slice(first, first + slots.length).map((v, i) => (
-              <button key={v.id} type="button" className={`voice-pin pin-${i}${v.id === active.id ? " active" : ""}`}
-                style={v.id === active.id ? frontPosition(center, longitude) : {left:slots[i][0]+"%",top:slots[i][1]+"%"}}
-                aria-label={`Select ${v.name}${v.place ? " from " + v.place : ""}`} aria-pressed={v.id === active.id}
-                onClick={() => { if (performance.now() - lastSwipe.current > 300) select(v.id); }}>
-                <span className="pin-photo"><Face voice={v}/></span>
-                <span className="pin-tag"><span className="pin-tag-dot"/>{v.name}</span>
-              </button>
-            ))}
           </div>
         </div>
         <div className="spotlight">

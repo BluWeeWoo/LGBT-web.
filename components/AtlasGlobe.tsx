@@ -1,13 +1,14 @@
 "use client";
 
-import { useLayoutEffect, useRef, type RefObject } from "react";
-import { atlasTilt, isLand, maskHeight, maskWidth } from "../lib/atlas-land";
+import { useCallback, useLayoutEffect, useRef, type RefObject } from "react";
+import { isLand, maskHeight, maskWidth } from "../lib/atlas-land";
+import { globeProjection, globeRadius, radians, type GlobeView } from "../lib/globe-view";
+import type { Voice } from "../lib/voices";
 import Globe from "./Globe";
+import { Face } from "./VoiceArt";
 
 const viewSize = 480;
-const radius = viewSize / 2 - 1.7;
-const cosTilt = Math.cos(atlasTilt);
-const sinTilt = Math.sin(atlasTilt);
+const radius = viewSize * globeRadius;
 const letters = ["+", "#", "=", "*", "o"];
 
 // Space marks evenly along each parallel and attach them to the rotating Earth.
@@ -32,9 +33,10 @@ function sampleGlobe(rows: number) {
 }
 
 function drawLayer(ctx: CanvasRenderingContext2D, layer: ReturnType<typeof sampleGlobe>,
-  angle: number, opacity: number, dots: boolean) {
+  angle: number, tilt: number, opacity: number, dots: boolean) {
   if (opacity <= 0) return;
   const sin = Math.sin(angle), cos = Math.cos(angle);
+  const sinTilt = Math.sin(tilt), cosTilt = Math.cos(tilt);
   ctx.font = `600 ${layer.spacing * .92}px monospace`;
   for (const point of layer.marks) {
     const front = point.front * cos + point.east * sin;
@@ -59,7 +61,7 @@ function blend(elapsed: number, start: number, end: number) {
   return t * t * (3 - 2 * t);
 }
 
-function createPrintPainter(canvas: HTMLCanvasElement, longitude: number) {
+function createPrintPainter(canvas: HTMLCanvasElement, view: GlobeView) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
   const coarse = sampleGlobe(19), medium = sampleGlobe(40), fine = sampleGlobe(96);
@@ -73,34 +75,56 @@ function createPrintPainter(canvas: HTMLCanvasElement, longitude: number) {
     ctx.clearRect(-viewSize / 2, -viewSize / 2, viewSize, viewSize);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    const angle = (longitude - 38 * (1 - turn) ** 2) * Math.PI / 180;
+    const angle = (view.longitude - 38 * (1 - turn) ** 2) * radians;
+    const tilt = view.latitude * radians;
     const toMedium = blend(elapsed, 260, 920);
     const toFine = blend(elapsed, 930, 1650);
-    drawLayer(ctx, coarse, angle, 1 - toMedium, false);
-    drawLayer(ctx, medium, angle, toMedium * (1 - toFine), false);
-    drawLayer(ctx, fine, angle, toFine, true);
+    drawLayer(ctx, coarse, angle, tilt, 1 - toMedium, false);
+    drawLayer(ctx, medium, angle, tilt, toMedium * (1 - toFine), false);
+    drawLayer(ctx, fine, angle, tilt, toFine, true);
     lastDraw = elapsed;
   };
 }
 
+function placePin(button: HTMLButtonElement, { x, y, depth }: { x: number; y: number; depth: number }) {
+  button.toggleAttribute("data-front", depth > 0);
+  if (depth <= 0) return;
+  button.style.left = `${50 + x * globeRadius * 100}%`;
+  button.style.top = `${50 + y * globeRadius * 100}%`;
+  button.style.setProperty("--pin-opacity", String(Math.min(1, depth * 6)));
+  button.style.setProperty("--pin-scale", String(0.52 + depth * 0.48));
+  button.style.setProperty("--pin-depth", String(Math.round(depth * 1000)));
+}
+
 type Props = {
-  longitude: number;
+  view: GlobeView;
+  pins: { voice: Voice; anchor: GlobeView }[];
+  selectedId: string;
+  select: (id: string) => void;
   arriving: boolean;
   paper: RefObject<HTMLDivElement | null>;
   onArrived: () => void;
 };
 
-export default function AtlasGlobe({ longitude, arriving, paper, onArrived }: Props) {
+export default function AtlasGlobe({ view, pins, selectedId, select, arriving, paper, onArrived }: Props) {
+  const { longitude, latitude } = view;
   const dock = useRef<HTMLDivElement>(null);
   const surface = useRef<HTMLDivElement>(null);
   const print = useRef<HTMLCanvasElement>(null);
+  const pinNodes = useRef(new Map<string, { button: HTMLButtonElement; anchor: GlobeView }>());
+  const currentView = useRef(view);
+  const updatePins = useCallback((frame: GlobeView) => {
+    currentView.current = frame;
+    const project = globeProjection(frame);
+    for (const { button, anchor } of pinNodes.current.values()) placePin(button, project(anchor));
+  }, []);
 
   useLayoutEffect(() => {
     if (!arriving) return;
     const anchor = dock.current!, globe = surface.current!, sheet = paper.current!;
     const stage = anchor.parentElement!;
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const paint = motion.matches ? null : createPrintPainter(print.current!, longitude);
+    const paint = motion.matches ? null : createPrintPainter(print.current!, { longitude, latitude });
     const began = performance.now();
     let frame = 0;
 
@@ -142,13 +166,31 @@ export default function AtlasGlobe({ longitude, arriving, paper, onArrived }: Pr
       stage.style.removeProperty("--arrival-pins");
       sheet.style.removeProperty("opacity");
     };
-  }, [arriving, longitude, onArrived, paper]);
+  }, [arriving, latitude, longitude, onArrived, paper]);
 
   return (
-    <div className="atlas-globe-dock" ref={dock} aria-hidden="true">
+    <div className="atlas-globe-dock" ref={dock}>
       <div className="atlas-globe-surface" ref={surface}>
-        <Globe longitude={longitude}/>
-        {arriving && <canvas className="welcome-print-globe" ref={print} width={viewSize} height={viewSize}/>}
+        <Globe longitude={longitude} latitude={latitude} onView={updatePins}/>
+        {arriving && <canvas className="welcome-print-globe" ref={print} width={viewSize} height={viewSize} aria-hidden="true"/>}
+        <div className="atlas-globe-pins">
+          {pins.map(({ voice, anchor }) => (
+            <button key={voice.id} type="button" className={`voice-pin${voice.id === selectedId ? " active" : ""}`}
+              ref={button => {
+                if (button) {
+                  pinNodes.current.set(voice.id, { button, anchor });
+                  placePin(button, globeProjection(currentView.current)(anchor));
+                } else {
+                  pinNodes.current.delete(voice.id);
+                }
+              }}
+              aria-label={`Select ${voice.name}${voice.place ? " from " + voice.place : ""}`}
+              aria-pressed={voice.id === selectedId} onClick={() => select(voice.id)}>
+              <span className="pin-photo"><Face voice={voice}/></span>
+              <span className="pin-tag"><span className="pin-tag-dot"/>{voice.name}</span>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

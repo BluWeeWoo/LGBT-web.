@@ -413,13 +413,16 @@ em {
 }
 .voice-pin {
   position: absolute;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) rotate(calc(-1 * var(--globe-roll))) scale(var(--pin-scale, 1));
   display: grid;
   place-items: center;
   padding: 0;
-  z-index: 1;
-  --pin-size: clamp(46px, 4.7vw, 76px);
+  z-index: var(--pin-depth, 0);
+  opacity: var(--pin-opacity, 0);
+  pointer-events: auto;
+  --pin-size: clamp(42px, 4.2vw, 68px);
 }
+.voice-pin:not([data-front]) { visibility: hidden; }
 .pin-photo {
   width: var(--pin-size);
   height: var(--pin-size);
@@ -430,31 +433,20 @@ em {
   box-shadow: 0 3px 8px #34203927;
   display: grid;
   place-items: center;
-  transition:
-    transform 0.23s,
-    outline 0.2s;
+  transition: outline 0.2s, box-shadow 0.2s;
 }
 .pin-photo img {
   pointer-events: none;
 }
-.pin-0 {
+.voice-pin.active {
   --pin-size: clamp(58px, 5.1vw, 86px);
 }
-.pin-1,
-.pin-3 {
-  --pin-size: clamp(44px, 4.2vw, 68px);
-}
-.pin-4 {
-  --pin-size: clamp(40px, 3.65vw, 62px);
-}
-.voice-pin.active,
 .voice-pin:hover,
 .voice-pin:focus-visible {
-  z-index: 2;
+  z-index: 1001;
 }
-.voice-pin:hover .pin-photo {
-  transform: translateY(-3px);
-}
+.voice-pin.active { z-index: 1002; }
+.voice-pin:hover .pin-photo { box-shadow: 0 6px 16px #2d203a40; }
 .voice-pin.active .pin-photo {
   outline: 2px solid #785491;
   outline-offset: 3px;
@@ -1094,11 +1086,8 @@ em {
   .voice-pin {
     --pin-size: clamp(37px, 8.4vw, 57px);
   }
-  .pin-0 {
+  .voice-pin.active {
     --pin-size: clamp(46px, 10.5vw, 64px);
-  }
-  .pin-4 {
-    --pin-size: clamp(32px, 7.7vw, 47px);
   }
   .pin-photo {
     border-width: 2px;
@@ -1216,15 +1205,5 @@ em {
   *:after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
-  }
-}
-.voice-pin {
-  transition:
-    left 0.7s ease,
-    top 0.7s ease;
-}
-@media (prefers-reduced-motion: reduce) {
-  .voice-pin {
-    transition: none;
   }
 }

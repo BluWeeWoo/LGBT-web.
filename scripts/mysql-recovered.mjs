@@ -5,7 +5,7 @@ import { createConnection } from "node:net";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { localAccountGrants, php, usingLocalDatabase } from "./mysql.mjs";
+import { localAccountGrants, php } from "./mysql.mjs";
 
 const site = fileURLToPath(new URL("../", import.meta.url));
 const mysql = "C:/xampp/mysql";
@@ -19,7 +19,7 @@ const binary = name => path.join(mysql, "bin", name + ".exe");
 // is never a working directory or a target for this command.
 export function prepareInstance(parent) {
   const config = readJson(path.join(site, ".env.mysql.json"));
-  const installation = hash(config.API_TOKEN).slice(0, 16);
+  const installation = hash(config.API_TOKEN || config.DB_PASSWORD).slice(0, 16);
   const folder = path.join(parent, "atlas-" + installation);
   const instance = path.join(folder, "mysql-" + port);
   if (existsSync(instance)) {
@@ -124,7 +124,7 @@ async function run() {
   if (process.platform !== "win32" || !process.env.LOCALAPPDATA || !existsSync(binary("mysqld"))) {
     throw new Error("This recovery uses the Windows XAMPP installation at C:/xampp.");
   }
-  if (!usingLocalDatabase()) throw new Error("The local RYE MySQL configuration is missing.");
+  if (!existsSync(path.join(site, ".env.mysql.json"))) throw new Error("The local RYE MySQL configuration is missing.");
   const occupied = await databasePortInUse();
   const instance = prepareInstance(path.join(process.env.LOCALAPPDATA, "RYE"));
   const client = ["--defaults-file=" + path.join(instance, "control.ini"), "--protocol=TCP", "--host=127.0.0.1", "--port=" + port, "--connect-timeout=1"];
@@ -153,11 +153,18 @@ async function run() {
   console.log("RYE database ready on 127.0.0.1:" + port + ".");
   process.env.RYE_MYSQL_DB_HOST = "127.0.0.1";
   process.env.RYE_MYSQL_DB_PORT = port;
+  const password = /^password=([0-9a-f]{64})$/m.exec(readFileSync(path.join(instance, "control.ini"), "utf8"))?.[1];
+  if (!password) throw new Error("The recovered database control configuration is invalid.");
+  const migrate = spawnSync(php, [path.join(site, "db/mysql/manage.php"), "migrate-local"], {
+    cwd: site, windowsHide: true, stdio: "inherit",
+    env: { ...process.env, RYE_MYSQL_SETUP_USER: "root", RYE_MYSQL_SETUP_PASSWORD: password },
+  });
+  if (migrate.error || migrate.status !== 0) throw new Error("Could not migrate the recovered database.");
   const command = args.includes("--reset-admin") ? "admin" : "init-admin";
   const admin = spawnSync(php, [path.join(site, "db/mysql/manage.php"), command], { cwd: site, windowsHide: true, stdio: "inherit" });
   if (admin.error || admin.status !== 0) throw new Error("Could not initialize the reviewer login for the recovered database.");
-  process.argv = [process.execPath, path.join(site, "scripts/run-framework.mjs"), "dev"];
-  await import("./run-framework.mjs");
+  process.argv = [process.execPath, path.join(site, "scripts/hostinger.mjs"), "preview"];
+  await import("./hostinger.mjs");
 }
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {

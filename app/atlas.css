@@ -91,16 +91,18 @@
   pointer-events: none;
 }
 .atlas-globe-surface {
+  --globe-roll: -9deg;
   position: relative;
   width: 100%;
   height: 100%;
 }
-.atlas-globe-surface > canvas {
+.atlas-globe-surface > canvas,
+.atlas-globe-pins {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  transform: rotate(-9deg);
+  transform: rotate(var(--globe-roll));
 }
 html:has(.atlas-arrival-paper) { overflow: hidden; }
 .site:has(.atlas-arrival-paper) {
@@ -118,7 +120,8 @@ html:has(.atlas-arrival-paper) { overflow: hidden; }
 }
 .atlas-section[data-arriving] .globe-stage { z-index: 2; }
 .atlas-section[data-arriving] .globe-stage::before,
-.atlas-section[data-arriving] .globe-stage > :not(.atlas-globe-dock) {
+.atlas-section[data-arriving] .globe-stage > :not(.atlas-globe-dock),
+.atlas-section[data-arriving] .atlas-globe-pins {
   opacity: var(--arrival-pins, 0);
 }
 .atlas-section[data-arriving] .earth { opacity: var(--arrival-map, 0); }
