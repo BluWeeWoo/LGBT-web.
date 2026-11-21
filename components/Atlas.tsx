@@ -162,6 +162,10 @@ export default function Atlas() {
   }, [archiveRequest]);
   useEffect(() => {
     const url = new URL(window.location.href);
+    if (url.hash === "#chat") {
+      window.location.replace("/connections/");
+      return;
+    }
     if (url.searchParams.get("share") === "1") {
       url.searchParams.delete("share");
       url.hash = "share";
@@ -278,6 +282,7 @@ export default function Atlas() {
             >
               Stories
             </a>
+            <a href="/connections/">Connections</a>
             <button
               type="button"
               onClick={() => open("#about")}

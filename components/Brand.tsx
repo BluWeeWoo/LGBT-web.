@@ -22,16 +22,12 @@ export function Bloom({ className = "" }: { className?: string }) {
 }
 export function Brand() {
   return (
-    <span className="brand">
-      <Bloom className="brand-mark" />
-      <span className="wordmark">
-        RYE<span>.</span>
-      </span>
-      <span className="brand-name">
-        Raise Your
-        <br />
-        Equality
-      </span>
-    </span>
+    <img
+      className="brand-logo"
+      src="/rye-atlas-orbit.webp"
+      alt="RYE — Raise Your Equality"
+      width={740}
+      height={216}
+    />
   );
 }

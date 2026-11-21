@@ -6,7 +6,7 @@ import { Eye, EyeOff, Globe2, MapPin } from "lucide-react";
 import { Brand } from "./Brand";
 import Globe from "./Globe";
 import { samples } from "../lib/voices";
-import { AccountFormError, enterAccount, followSession } from "../lib/account-session";
+import { AccountFormError, enterAccount, followSession, readAccountIntent, type AccountIntent } from "../lib/account-session";
 
 type Field = "name" | "email" | "password" | "confirmation";
 const labels = { name: "Display name", email: "Email address", password: "Password", confirmation: "Confirm password" };
@@ -15,8 +15,10 @@ const loginFields: Field[] = ["email", "password"];
 
 export default function AccountForm({ mode }: { mode: "signup" | "login" }) {
   const signup = mode === "signup";
-  const [forShare, setForShare] = useState(false);
-  useEffect(() => setForShare(new URLSearchParams(window.location.search).get("next") === "share"), []);
+  const [intent, setIntent] = useState<AccountIntent>(null);
+  useEffect(() => setIntent(readAccountIntent(new URLSearchParams(window.location.search))), []);
+  const intentQuery = intent ? "?" + new URLSearchParams(intent.next === "connections" && intent.story
+    ? { next: intent.next, story: intent.story } : { next: intent.next }) : "";
   const fields = signup ? signupFields : loginFields;
   const [values, setValues] = useState({ name: "", email: "", password: "", confirmation: "" });
   const [touched, setTouched] = useState<Partial<Record<Field, boolean>>>({});
@@ -45,7 +47,7 @@ export default function AccountForm({ mode }: { mode: "signup" | "login" }) {
     setIssue("");
     setServerError(null);
     try {
-      const destination = await enterAccount(values, mode, forShare);
+      const destination = await enterAccount(values, mode, intent);
       setValues({ name: "", email: "", password: "", confirmation: "" });
       followSession(destination);
     } catch (cause) {
@@ -112,7 +114,7 @@ export default function AccountForm({ mode }: { mode: "signup" | "login" }) {
               <button type="submit" className="btn dark auth-submit" disabled={busy}>{busy ? "Signing in…" : signup ? "Sign up" : "Log in"}</button>
             </form>
             <p className="auth-switch">{signup ? "Already have an account?" : "New to RYE?"}{" "}
-              <a href={(signup ? "/login/" : "/signup/") + (forShare ? "?next=share" : "")} className="text-link">{signup ? "Log in" : "Sign up"}</a>
+              <a href={(signup ? "/login/" : "/signup/") + intentQuery} className="text-link">{signup ? "Log in" : "Sign up"}</a>
             </p>
           </div>
         </section>

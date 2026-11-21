@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, ArrowUpRight, Clock3, Globe2, MapPin } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Clock3, Globe2, MapPin, MessageCircle } from "lucide-react";
 import { flagThemes, readTime, type Flag, type Voice } from "../lib/voices";
 import { Dialog } from "./Dialog";
 import { StoryGallery } from "./StoryPhotos";
@@ -109,6 +109,11 @@ export function Reader({
             <ArrowLeft size={15} />
             Back to the atlas
           </button>
+          {!story.sample && !story.mine && (
+            <a className="btn outline" href={`/connections/?story=${encodeURIComponent(story.id)}`}>
+              <MessageCircle size={16} aria-hidden="true" /> Request to connect
+            </a>
+          )}
           {story.mine && !confirm && (
             <button
               className="text-link"

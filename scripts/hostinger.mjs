@@ -31,7 +31,7 @@ function packageSite() {
   cpSync(path.join(root, "deploy/hostinger"), path.join(bundle, "public_html"), { recursive: true });
   const backend = path.join(bundle, "db/mysql");
   mkdirSync(backend, { recursive: true });
-  for (const item of ["accounts.php", "connection.php", "manage.php", "migrate.php", "photo-files.php", "stories.php", "migrations", "public"]) {
+  for (const item of ["accounts.php", "chat.php", "connection.php", "manage.php", "migrate.php", "photo-files.php", "stories.php", "migrations", "public"]) {
     cpSync(path.join(root, "db/mysql", item), path.join(backend, item), { recursive: true });
   }
   cpSync(path.join(root, ".env.mysql.example.json"), path.join(bundle, ".env.mysql.example.json"));

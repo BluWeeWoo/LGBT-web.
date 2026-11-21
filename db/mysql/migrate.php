@@ -20,6 +20,7 @@ function migrateDatabase(PDO $db): void {
     }
     try {
         foreach (migrationStatements('001_initial.sql') as $sql) $db->exec($sql);
+        foreach (migrationStatements('004_connections.sql') as $sql) $db->exec($sql);
         if (!hasColumn($db, 'story_photos', 'jpeg')) return;
         foreach (migrationStatements('002_legacy_photo_metadata.sql') as $sql) {
             preg_match('/^ALTER TABLE (\w+) ADD COLUMN (\w+)/', $sql, $parts);

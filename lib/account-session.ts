@@ -1,5 +1,14 @@
 export type StorySession = { loggedIn: boolean; canReview: boolean };
 type Destination = { path: string };
+export type AccountIntent = { next: "share" } | { next: "connections"; story?: string } | null;
+
+export function readAccountIntent(query: URLSearchParams): AccountIntent {
+  const next = query.get("next");
+  if (next === "share") return { next };
+  if (next !== "connections") return null;
+  const story = query.get("story");
+  return { next, story: story && /^[a-f\d]{8}-[a-f\d]{4}-4[a-f\d]{3}-[89ab][a-f\d]{3}-[a-f\d]{12}$/i.test(story) ? story : undefined };
+}
 
 export function followSession({ path }: Destination) {
   window.location.replace(path);
@@ -11,9 +20,12 @@ export class AccountFormError extends Error {
 
 export async function enterAccount(
   { name, email, password }: { name: string; email: string; password: string },
-  mode: "signup" | "login", forShare: boolean,
+  mode: "signup" | "login", intent: AccountIntent,
 ): Promise<Destination> {
-  const response = await fetch("/api/session" + (forShare ? "?share=1" : ""), {
+  const params = new URLSearchParams();
+  if (intent) params.set(intent.next, "1");
+  if (intent?.next === "connections" && intent.story) params.set("story", intent.story);
+  const response = await fetch("/api/session" + (intent ? "?" + params : ""), {
     method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mode, email, password, name: mode === "signup" ? name : undefined }),
   });

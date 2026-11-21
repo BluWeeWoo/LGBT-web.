@@ -32,19 +32,22 @@ function prepare(adminEmail) {
   if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(email) || email.length > 254) {
     throw new Error("Supply the reviewer email, for example npm run db:setup -- reviewer@example.com");
   }
-  if (existing && email !== existing.ADMIN_EMAIL) throw new Error("This installation already has a configured reviewer email.");
+  if (existing?.ADMIN_EMAIL && email !== existing.ADMIN_EMAIL) throw new Error("This installation already has a configured reviewer email.");
   const settings = existing || {
     DB_HOST: "127.0.0.1", DB_PORT: "3306", DB_NAME: "rye_atlas", DB_USER: "rye_atlas_app",
     DB_PASSWORD: randomBytes(32).toString("hex"), ADMIN_EMAIL: email,
   };
   if (!existing) writeFileSync(localConfig, JSON.stringify(settings, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+  else if (!existing.ADMIN_EMAIL) writeFileSync(localConfig, JSON.stringify({ ...settings, ADMIN_EMAIL: email }, null, 2) + "\n");
   // These fixed/local-only values can be imported through phpMyAdmin or the CLI installer.
-  const schema = readFileSync(path.join(root, "db/mysql/migrations/001_initial.sql"), "utf8");
+  const schema = ["001_initial.sql", "004_connections.sql"].map(file =>
+    readFileSync(path.join(root, "db/mysql/migrations", file), "utf8"));
   const grants = localAccountGrants(settings);
+  const chatGrants = readFileSync(path.join(root, "db/mysql/migrations/local_chat_grants.sql"), "utf8");
   const reserve = `INSERT INTO users (id, email, display_name, role) VALUES ('${randomUUID()}', '${email}', 'RYE reviewer', 'admin') ON DUPLICATE KEY UPDATE id = id;`;
   writeFileSync(bootstrap, [
     "CREATE DATABASE IF NOT EXISTS rye_atlas CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;",
-    "USE rye_atlas;", schema, grants, reserve, "",
+    "USE rye_atlas;", ...schema, grants, chatGrants, reserve, "",
   ].join("\n"), { mode: 0o600 });
 }
 

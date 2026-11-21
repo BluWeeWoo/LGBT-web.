@@ -4,6 +4,7 @@ require __DIR__ . '/../connection.php';
 require __DIR__ . '/../accounts.php';
 require __DIR__ . '/../stories.php';
 require __DIR__ . '/../photo-files.php';
+require __DIR__ . '/../chat.php';
 
 function queryValue(string $name): ?string {
     $value = $_GET[$name] ?? null;
@@ -44,6 +45,7 @@ try {
         '/api/stories' => ['GET', 'POST', 'DELETE'],
         '/api/stories/photo' => ['GET'],
         '/api/admin/stories' => ['GET', 'PATCH'],
+        '/api/connections' => ['GET', 'POST', 'PATCH'],
     ];
     if (!isset($routes[$path])) throw new RyeInputError(404, 'Unknown endpoint.');
     if (!in_array($method, $routes[$path], true)) {
@@ -64,8 +66,10 @@ try {
         echo '{"loggedIn":false,"canReview":false}';
         return;
     }
+    if ($path === '/api/connections' && $token === '') throw new RyeInputError(401, 'Log in to open Connections.');
     $db = ryeDb($settings);
     $user = sessionUser($db, $token);
+    if ($path === '/api/connections' && !$user) throw new RyeInputError(401, 'Log in to open Connections.');
 
     switch ("$method $path") {
         case 'GET /api/session':
@@ -73,6 +77,9 @@ try {
             break;
         case 'POST /api/session':
             $share = queryValue('share') === '1';
+            $connections = queryValue('connections') === '1';
+            $story = $connections ? queryValue('story') : null;
+            if ($story !== null) $story = checkedId($story);
             $data = requestJson(8192);
             $data['client'] = $_SERVER['REMOTE_ADDR'] ?? 'local';
             $account = authenticate($db, $data, $token);
@@ -80,7 +87,8 @@ try {
             $intent = [];
             if ($share) $intent['share'] = '1';
             if ($data['mode'] === 'signup') $intent['welcome'] = '1';
-            $result = ['path' => $account['canReview'] ? '/admin/' : ($intent ? '/?' . http_build_query($intent) : '/')];
+            $result = ['path' => $connections ? '/connections/' . ($story === null ? '' : '?story=' . $story) :
+                ($account['canReview'] ? '/admin/' : ($intent ? '/?' . http_build_query($intent) : '/'))];
             break;
         case 'DELETE /api/session':
             if ($user) runQuery($db, 'DELETE FROM sessions WHERE token_hash = ?', [hash('sha256', $token, true)]);
@@ -111,6 +119,19 @@ try {
             requireReviewer($user);
             $result = reviewStory($db, $user, requestJson(4096));
             break;
+        case 'GET /api/connections':
+            $id = queryValue('id');
+            $result = $id === null ? chatInbox($db, $user['id']) :
+                chatThread($db, $user['id'], chatId($id), queryValue('before'), queryValue('after'));
+            break;
+        case 'POST /api/connections':
+            $data = requestJson(8192);
+            $result = array_key_exists('story', $data) ? requestConnection($db, $user['id'], $data) :
+                sendChatMessage($db, $user['id'], $data);
+            break;
+        case 'PATCH /api/connections':
+            $result = updateConnection($db, $user['id'], requestJson(8192));
+            break;
         case 'GET /api/stories/photo':
             $file = getPhoto($db, $user, ['id' => queryValue('id'), 'index' => queryValue('index')]);
             header('Content-Type: image/jpeg');
@@ -129,6 +150,8 @@ try {
     } else {
         error_log('RYE API failed (' . get_class($error) . ' ' . $error->getCode() . ').');
         http_response_code(503);
-        echo '{"error":"The story service is unavailable. Please try again."}';
+        echo ($path ?? '') === '/api/connections' ?
+            '{"error":"Connections is temporarily unavailable. Please try again."}' :
+            '{"error":"The story service is unavailable. Please try again."}';
     }
 }

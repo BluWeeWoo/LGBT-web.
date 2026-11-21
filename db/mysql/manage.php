@@ -48,9 +48,14 @@ try {
         }
         $db = ryeDb(array_replace($settings, ['DB_USER' => $setupUser, 'DB_PASSWORD' => $setupPassword]));
         migrateDatabase($db);
+        if ($command === 'migrate-local' && $settings['DB_NAME'] === 'rye_atlas' && $settings['DB_USER'] === 'rye_atlas_app') {
+            foreach (migrationStatements('local_chat_grants.sql') as $sql) $db->exec($sql);
+        }
         // Verify that the limited application account can use the installed schema.
         $setupLogin = false;
-        runQuery(ryeDb($settings), 'SELECT id FROM users LIMIT 1');
+        $app = ryeDb($settings);
+        runQuery($app, 'SELECT id FROM users LIMIT 1');
+        runQuery($app, 'SELECT id FROM chat_connections LIMIT 1');
     } elseif ($command === 'migrate') {
         $db = ryeDb($settings);
         migrateDatabase($db);
